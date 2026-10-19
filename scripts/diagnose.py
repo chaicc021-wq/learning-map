@@ -22,7 +22,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 API = os.environ.get("DIAG_API", "http://127.0.0.1:8088/v1/chat/completions")
 CACHE = os.path.join(HERE, "_qcache.json")
-CHILD_NAME = os.environ.get("DIAG_CHILD", "予淳")
+# 孩子名字不写进代码/仓库：本地用环境变量注入（export DIAG_CHILD=xxx）
+CHILD_NAME = os.environ.get("DIAG_CHILD", "孩子")
 
 sys.stdout.reconfigure(encoding="utf-8")
 
