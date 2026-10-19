@@ -19,10 +19,13 @@ data/                     上游数据集（Marble Skill Taxonomy v1，原样保
 schema/                   JSON Schema（校验用）
 scripts/validate.mjs      上游校验脚本
 scripts/gen_viz_data.py   把上游 JSON 压成浏览器可用的 viz/data.js
+scripts/diagnose.py       卡点回溯诊断引擎（中文化 + 现场提问 + 三档判定）
 viz/index.html            3D 可视化 + 卡点回溯（零构建、零 CDN、离线可跑）
 viz/vendor/               three.js 本地副本（不依赖网络）
 viz/data.js               压缩后的图谱数据（1.7MB）
+sessions/                 诊断会话记录 + 可打印摸底单
 docs/架构说明.md          数据模型 + 可视化设计 + 二次开发接口
+docs/卡点回溯诊断方法.md  诊断方法、命令、实测性能、已验证/未验证边界
 docs/市场分析与方向.md    市场规模、竞争格局、合规边界、我们的切入点
 UPSTREAM_README.md        上游原始 README（数据集权威说明，保留）
 PROVENANCE.md             上游课标许可逐条说明（商用必读）
@@ -49,6 +52,21 @@ cd viz && python -m http.server 8000
 python scripts/gen_viz_data.py
 ```
 
+## 卡点回溯诊断引擎（scripts/diagnose.py）
+
+**不需要题库。** 上游的 `assessmentPrompt` 是"给老师的提问建议"，本地模型把它变成 7 岁孩子听得懂的中文现场题；家长转述孩子真实表现，模型判三档（会 / 半会 / 不会），沿前置链回溯定位卡点，并区分**能力缺口**（回头补地基）和**练习缺口**（直接练这个点）——这两种处方完全相反，传统测评分不开。
+
+```bash
+python scripts/diagnose.py screen  --subject Mathematics --age 7 --n 12  # 摸底单（可打印版存 sessions/）
+python scripts/diagnose.py plan    --topic mt_glPPG-kTQY --depth 4       # 看前置链 + 每格怎么问
+python scripts/diagnose.py session --topic mt_glPPG-kTQY                 # 现场一问一答，问到失败即停
+python scripts/diagnose.py judge   --topic mt_xmmgAzxe5j --answer "孩子原话"
+```
+
+实测（本地 Strata 8088）：生成一道中文诊断题约 2 秒；14 层前置链全量预热 75 秒；缓存命中 0 秒。
+自动中文化并判断对中国小学生 `适用 / 需调整 / 不适用`——例：英国货币 `Coin Values` 自动标记需换成人民币元角分，英文数词拼写自动标记中国不教。
+方法、命令、已验证与未验证边界见 `docs/卡点回溯诊断方法.md`。
+
 ## 已验证（Playwright + headless Chromium 实测）
 
 | 检查项 | 结果 |
@@ -74,6 +92,7 @@ python scripts/gen_viz_data.py
 
 - [x] 上游数据全量核验（数字逐条数过，与原帖一致）
 - [x] 3D 可视化 + 前置链回溯，Playwright 全链路验证通过
+- [x] 对话式诊断引擎（assessmentPrompt → 本地 LLM 中文现场提问 → 三档判定 → 卡点报告），模拟转述验证通过
+- [ ] **真实儿童验证**：在予淳身上跑一次摸底 + 回溯，人工核对卡点判定是否与家长日常观察吻合 ← 当前唯一命门
 - [ ] 中国教材映射（人教版 / 统编版）——真正的护城河工作，未开始
-- [ ] 对话式诊断（用 assessmentPrompt 驱动本地 LLM 提问）
-- [ ] 卡点 → 3D 课件联动（接 brother-3d-course 引擎）
+- [ ] 卡点 → 3D 课件联动（接 deck3d-courseware 引擎）
