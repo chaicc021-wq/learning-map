@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学习地图 · Marble Skill Taxonomy 3D 可视化</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#141926; --panel2:#1b2233; --border:#2a3350;
+    --fg:#e8ecf5; --dim:#8b96ad; --accent:#5aa7ff; --hard:#ffb454; --soft:#3d6ea5;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{background:var(--bg);color:var(--fg);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  #stage{position:fixed;inset:0}
+  #stage canvas{display:block}
+  .panel{position:fixed;background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:12px 14px;font-size:13px;line-height:1.55;backdrop-filter:blur(6px)}
+  #left{left:14px;top:14px;width:264px;max-height:calc(100vh - 28px);overflow:auto}
+  #right{right:14px;top:14px;width:340px;max-height:calc(100vh - 28px);overflow:auto;display:none}
+  h1{font-size:15px;margin-bottom:2px}
+  .sub{color:var(--dim);font-size:11px;margin-bottom:10px}
+  .row{display:flex;align-items:center;gap:6px;margin:3px 0}
+  .row input[type=checkbox]{accent-color:var(--accent)}
+  .swatch{width:10px;height:10px;border-radius:3px;display:inline-block}
+  input[type=search]{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--fg);
+    border-radius:6px;padding:6px 8px;font-size:13px;outline:none}
+  button{background:var(--panel2);border:1px solid var(--border);color:var(--fg);border-radius:6px;
+    padding:5px 10px;font-size:12px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.on{background:var(--accent);color:#08111f;border-color:var(--accent)}
+  .count{color:var(--dim);font-size:11px;margin-top:6px}
+  #right h2{font-size:15px;margin-bottom:2px}
+  .tags{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}
+  .tag{background:var(--panel2);border:1px solid var(--border);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--dim)}
+  .sec{margin-top:10px}
+  .sec b{font-size:12px;color:var(--accent)}
+  .ev{margin:4px 0 4px 14px;position:relative;color:#c6cfdf}
+  .ev::before{content:"✓";position:absolute;left:-14px;color:var(--hard);font-size:11px}
+  .chain{margin-top:6px}
+  .chain .node{padding:4px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--border);
+    margin:4px 0;cursor:pointer;font-size:12px}
+  .chain .node:hover{border-color:var(--accent)}
+  .chain .lv{color:var(--dim);font-size:10px;margin-right:6px}
+  .chain .why{color:var(--dim);font-size:11px;display:block}
+  #hint{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;color:var(--dim);font-size:11px;
+    background:rgba(20,25,38,.8);padding:5px 12px;border-radius:20px;border:1px solid var(--border)}
+  #agebar{position:fixed;left:14px;bottom:12px;color:var(--dim);font-size:11px;background:rgba(20,25,38,.8);
+    padding:5px 12px;border-radius:20px;border:1px solid var(--border)}
+  .close{float:right;cursor:pointer;color:var(--dim);font-size:16px;line-height:1}
+  .close:hover{color:var(--fg)}
+  a{color:var(--accent)}
+  .muted{color:var(--dim)}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="panel" id="left">
+  <h1>学习地图 · 知识图谱 3D</h1>
+  <div class="sub">Marble Skill Taxonomy v1 · 1,590 微知识点 · 3,221 条前置关系 · 高度=年龄</div>
+  <input type="search" id="q" placeholder="搜索知识点（英文，如 sentence / fraction）">
+  <div id="subjects" style="margin-top:8px"></div>
+  <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+    <button id="btn-hard" class="on">硬依赖</button>
+    <button id="btn-soft" class="on">软依赖</button>
+    <button id="btn-reset">重置视角</button>
+  </div>
+  <div class="count" id="stat"></div>
+</div>
+
+<div class="panel" id="right">
+  <span class="close" id="close">×</span>
+  <h2 id="t-name"></h2>
+  <div class="tags" id="t-tags"></div>
+  <div class="muted" id="t-desc"></div>
+  <div class="sec"><b>掌握标准（evidence）</b><div id="t-ev"></div></div>
+  <div class="sec"><b>检测问题</b><div class="ev" id="t-ap" style="margin-left:14px"></div></div>
+  <div class="sec"><b>前置链（卡点回溯）</b><div class="chain" id="t-chain"></div></div>
+  <div class="sec"><b>解锁后续（它学完能学什么）</b><div class="chain" id="t-next"></div></div>
+</div>
+
+<div id="agebar">纵轴：5 岁（底） → 12 岁（顶）</div>
+<div id="hint">拖拽旋转 · 滚轮缩放 · 点击知识点看详情与前置链</div>
+
+<script type="importmap">
+{"imports":{"three":"./vendor/three.module.js","three/addons/controls/OrbitControls.js":"./vendor/OrbitControls.js"}}
+</script>
+<script src="./data.js"></script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const D = window.TAXONOMY_DATA;
+const SUBJECTS = ["Mathematics","Science","English","History","Personal & Social Development","Life Skills","Computing","Learning to Learn"];
+const COLORS = {
+  "Mathematics":"#5aa7ff","Science":"#4ecb8f","English":"#ff7b9c","History":"#c78fff",
+  "Personal & Social Development":"#ffd166","Life Skills":"#ff9966","Computing":"#66e0e0","Learning to Learn":"#9aa5b8"
+};
+const CN = {
+  "Mathematics":"数学","Science":"科学","English":"英语","History":"历史",
+  "Personal & Social Development":"个人与社会","Life Skills":"生活技能","Computing":"计算机","Learning to Learn":"学会学习",
+  "CONCEPTUAL":"概念","PROCEDURAL":"程序/方法","REPRESENTATIONAL":"表征","LANGUAGE":"语言","META":"元认知"
+};
+
+const byId = new Map(D.topics.map(t=>[t.id,t]));
+const parents = new Map(), children = new Map();
+function push(map,k,v){ if(!map.has(k)) map.set(k,[]); map.get(k).push(v); }
+for (const e of D.deps){
+  if (!byId.has(e.f)||!byId.has(e.p)) continue;
+  push(parents,e.f,e);
+  push(children,e.p,e);
+}
+
+/* ---------- layout: subject sector × domain ring × age height ---------- */
+const AGE0=5, AGE1=12, H=26;
+const subjIdx = new Map(SUBJECTS.map((s,i)=>[s,i]));
+const domains = new Map();
+for (const t of D.topics){
+  const k=t.s+"|"+t.d;
+  if(!domains.has(k)) domains.set(k, domains.size);
+}
+const subjDomains = new Map();
+for (const [k] of domains){ const s=k.split("|")[0]; if(!subjDomains.has(s)) subjDomains.set(s,new Set()); subjDomains.get(s).add(k); }
+
+for (const t of D.topics){
+  const si = subjIdx.get(t.s) ?? 0;
+  const dl = [...(subjDomains.get(t.s)||[])];
+  const di = dl.indexOf(t.s+"|"+t.d);
+  const nD = Math.max(dl.length,1);
+  const sector = (si/SUBJECTS.length)*Math.PI*2;
+  const within = (di/nD)*(Math.PI*2/SUBJECTS.length) - Math.PI/SUBJECTS.length;
+  const ang = sector + within*0.82;
+  const r = 10 + (di%3)*2.2 + (t.c>0.3? -1.5:0);
+  const age = ((t.a0??AGE0)+(t.a1??AGE1))/2;
+  const y = THREE.MathUtils.clamp((age-AGE0)/(AGE1-AGE0),0,1)*H;
+  t.pos = new THREE.Vector3(Math.cos(ang)*r, y, Math.sin(ang)*r);
+}
+
+/* ---------- three scene ---------- */
+const stage=document.getElementById("stage");
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+stage.appendChild(renderer.domElement);
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0b0e14);
+scene.fog=new THREE.Fog(0x0b0e14,60,140);
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,400);
+camera.position.set(26,20,34);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.target.set(0,H/2,0); controls.enableDamping=true; controls.dampingFactor=.08;
+
+scene.add(new THREE.AmbientLight(0xffffff,.55));
+const dl=new THREE.DirectionalLight(0xffffff,.8); dl.position.set(20,40,10); scene.add(dl);
+
+/* subject floor sectors */
+for (const s of SUBJECTS){
+  const si=subjIdx.get(s);
+  const g=new THREE.RingGeometry(6,20,24,1,(si/SUBJECTS.length)*Math.PI*2,(Math.PI*2/SUBJECTS.length)*0.92);
+  const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:new THREE.Color(COLORS[s]),transparent:true,opacity:.06,side:THREE.DoubleSide}));
+  m.rotation.x=-Math.PI/2; m.position.y=-.2; scene.add(m);
+  const cv=document.createElement("canvas"); cv.width=512; cv.height=64;
+  const cx=cv.getContext("2d"); cx.font="bold 34px Microsoft YaHei,sans-serif"; cx.fillStyle=COLORS[s];
+  cx.fillText(CN[s]||s,8,42);
+  const tex=new THREE.CanvasTexture(cv);
+  const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,opacity:.85}));
+  const mid=((si+.5)/SUBJECTS.length)*Math.PI*2;
+  spr.position.set(Math.cos(mid)*22.5,-.2,Math.sin(mid)*22.5); spr.scale.set(9,1.1,1); scene.add(spr);
+}
+/* age gridlines */
+for (let a=AGE0;a<=AGE1;a+=1){
+  const y=((a-AGE0)/(AGE1-AGE0))*H;
+  const g=new THREE.RingGeometry(19.5,20,64);
+  const m=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0x2a3350,transparent:true,opacity:.25,side:THREE.DoubleSide}));
+  m.rotation.x=-Math.PI/2; m.position.y=y; scene.add(m);
+}
+
+/* nodes: instanced spheres */
+const N=D.topics.length;
+const nodeGeo=new THREE.SphereGeometry(1,10,8);
+const nodeMat=new THREE.MeshStandardMaterial({roughness:.5,metalness:.05});
+const nodes=new THREE.InstancedMesh(nodeGeo,nodeMat,N);
+const dummy=new THREE.Object3D(); const col=new THREE.Color();
+function nodeScale(t){ return 0.22 + t.c*1.6 + (parents.get(t.id)?.length?0.15:0); }
+function paintNodes(){
+  let shown=0;
+  for (let i=0;i<N;i++){
+    const t=D.topics[i];
+    const vis = subjOn.has(t.s) && matches(t);
+    dummy.position.copy(t.pos);
+    const s = vis? nodeScale(t):0.0001;
+    dummy.scale.set(s,s,s); dummy.updateMatrix();
+    nodes.setMatrixAt(i,dummy.matrix);
+    let c=COLORS[t.s];
+    if (selected && (t.id===selected)) c="#ffffff";
+    else if (chainSet.size && chainSet.has(t.id)) c = t.id===selected? "#ffffff" : "#ffd166";
+    else if (nextSet.size && nextSet.has(t.id)) c="#4ecb8f";
+    else if (searchActive && !matches(t)) c="#39415a";
+    nodes.setColorAt(i,col.set(c));
+    if(vis) shown++;
+  }
+  nodes.instanceMatrix.needsUpdate=true; nodes.instanceColor.needsUpdate=true;
+  document.getElementById("stat").textContent=`显示 ${shown} / ${N} 个知识点`;
+}
+scene.add(nodes);
+
+/* edges: two LineSegments (hard / soft) */
+let edgeHard, edgeSoft;
+function buildEdges(){
+  if(edgeHard){scene.remove(edgeHard);edgeHard.geometry.dispose()}
+  if(edgeSoft){scene.remove(edgeSoft);edgeSoft.geometry.dispose()}
+  const hp=[],sp=[];
+  for(const e of D.deps){
+    const a=byId.get(e.f), b=byId.get(e.p);
+    if(!a||!b) continue;
+    if(!subjOn.has(a.s)||!subjOn.has(b.s)) continue;
+    (e.h?hp:sp).push(a.pos.x,a.pos.y,a.pos.z,b.pos.x,b.pos.y,b.pos.z);
+  }
+  const mk=(arr,color,op)=>{
+    if(!arr.length) return null;
+    const g=new THREE.BufferGeometry();
+    g.setAttribute("position",new THREE.Float32BufferAttribute(arr,3));
+    const l=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color,transparent:true,opacity:op}));
+    scene.add(l); return l;
+  };
+  if(showHard) edgeHard=mk(hp,0xffb454,.30);
+  if(showSoft) edgeSoft=mk(sp,0x3d6ea5,.16);
+}
+
+/* highlight overlay for selected chain */
+let chainLines=null;
+function drawChainLines(){
+  if(chainLines){scene.remove(chainLines);chainLines.geometry.dispose();chainLines=null}
+  const pts=[];
+  for(const e of D.deps){
+    if(chainSet.has(e.f)&&chainSet.has(e.p)){
+      const a=byId.get(e.f),b=byId.get(e.p);
+      pts.push(a.pos.x,a.pos.y,a.pos.z,b.pos.x,b.pos.y,b.pos.z);
+    }
+  }
+  if(pts.length){
+    const g=new THREE.BufferGeometry();
+    g.setAttribute("position",new THREE.Float32BufferAttribute(pts,3));
+    chainLines=new THREE.LineSegments(g,new THREE.LineBasicMaterial({color:0xffd166,transparent:true,opacity:.9}));
+    scene.add(chainLines);
+  }
+}
+
+/* ---------- filters / search ---------- */
+const subjOn=new Set(SUBJECTS);
+let showHard=true, showSoft=true, searchActive=false, query="";
+function matches(t){ return !searchActive || (t.n+" "+t.desc).toLowerCase().includes(query); }
+
+const subjBox=document.getElementById("subjects");
+for(const s of SUBJECTS){
+  const row=document.createElement("label"); row.className="row";
+  const cnt=D.topics.filter(t=>t.s===s).length;
+  row.innerHTML=`<input type="checkbox" checked data-s="${s}"><span class="swatch" style="background:${COLORS[s]}"></span>${CN[s]} <span class="muted">${s} · ${cnt}</span>`;
+  subjBox.appendChild(row);
+  row.querySelector("input").addEventListener("change",e=>{
+    e.target.checked?subjOn.add(s):subjOn.delete(s); paintNodes(); buildEdges();
+  });
+}
+const q=document.getElementById("q");
+q.addEventListener("input",()=>{ query=q.value.trim().toLowerCase(); searchActive=query.length>1; paintNodes(); });
+document.getElementById("btn-hard").addEventListener("click",e=>{showHard=!showHard;e.target.classList.toggle("on",showHard);buildEdges()});
+document.getElementById("btn-soft").addEventListener("click",e=>{showSoft=!showSoft;e.target.classList.toggle("on",showSoft);buildEdges()});
+document.getElementById("btn-reset").addEventListener("click",()=>{camera.position.set(26,20,34);controls.target.set(0,H/2,0);clearSel()});
+
+/* ---------- selection & chain trace ---------- */
+let selected=null, chainSet=new Set(), nextSet=new Set();
+function traceUp(id,depth=4){
+  const set=new Set([id]), levels=new Map([[id,0]]), out=[];
+  let frontier=[id];
+  for(let lv=1;lv<=depth;lv++){
+    const nx=[];
+    for(const cur of frontier){
+      for(const e of (parents.get(cur)||[])){
+        if(!set.has(e.p)){ set.add(e.p); levels.set(e.p,lv); out.push({e,lv}); nx.push(e.p); }
+      }
+    }
+    frontier=nx;
+  }
+  return {set,out,levels};
+}
+function traceDown(id,depth=2){
+  const set=new Set(); let frontier=[id];
+  for(let lv=1;lv<=depth;lv++){
+    const nx=[];
+    for(const cur of frontier) for(const e of (children.get(cur)||[])) if(!set.has(e.f)&&e.f!==id){set.add(e.f);nx.push(e.f)}
+    frontier=nx;
+  }
+  return set;
+}
+function select(id){
+  selected=id; const t=byId.get(id);
+  const up=traceUp(id); chainSet=up.set; nextSet=traceDown(id);
+  paintNodes(); drawChainLines(); buildEdges();
+  const R=document.getElementById("right"); R.style.display="block";
+  document.getElementById("t-name").textContent=t.n;
+  document.getElementById("t-tags").innerHTML=
+    `<span class="tag" style="border-color:${COLORS[t.s]};color:${COLORS[t.s]}">${CN[t.s]||t.s}</span>`+
+    `<span class="tag">${t.d}</span><span class="tag">${CN[t.ty]||t.ty}</span>`+
+    `<span class="tag">${t.a0??"?"}–${t.a1??"?"} 岁</span>`+
+    (t.st.length?`<span class="tag">课标: ${t.st.join(", ")}</span>`:"");
+  document.getElementById("t-desc").textContent=t.desc;
+  document.getElementById("t-ev").innerHTML=(t.ev||[]).map(e=>`<div class="ev">${e}</div>`).join("")||`<span class="muted">无</span>`;
+  document.getElementById("t-ap").textContent=t.ap||"—";
+  document.getElementById("t-chain").innerHTML=up.out.length? up.out.map(o=>{
+    const p=byId.get(o.e.p);
+    return `<div class="node" data-id="${p.id}"><span class="lv">L${o.lv} ${o.e.h?"硬":"软"}</span>${p.n}<span class="why">${o.e.r}</span></div>`;
+  }).join(""):`<span class="muted">没有更早的前置——这就是地基知识点。</span>`;
+  document.getElementById("t-next").innerHTML=[...nextSet].slice(0,12).map(nid=>{
+    const p=byId.get(nid); return `<div class="node" data-id="${nid}">${p.n}</div>`;
+  }).join("")||`<span class="muted">它已是末端。</span>`;
+  document.querySelectorAll("#right .node").forEach(el=>el.addEventListener("click",()=>select(el.dataset.id)));
+}
+function clearSel(){ selected=null; chainSet=new Set(); nextSet=new Set(); paintNodes(); drawChainLines(); document.getElementById("right").style.display="none"; }
+document.getElementById("close").addEventListener("click",clearSel);
+
+/* raycast click */
+const ray=new THREE.Raycaster(); const mouse=new THREE.Vector2();
+let downXY=null;
+renderer.domElement.addEventListener("pointerdown",e=>downXY=[e.clientX,e.clientY]);
+renderer.domElement.addEventListener("pointerup",e=>{
+  if(!downXY||Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1])>5) return;
+  mouse.set((e.clientX/innerWidth)*2-1,-(e.clientY/innerHeight)*2+1);
+  ray.setFromCamera(mouse,camera);
+  const hit=ray.intersectObject(nodes)[0];
+  if(hit&&hit.instanceId!=null){ const t=D.topics[hit.instanceId]; if(subjOn.has(t.s)&&matches(t)) select(t.id); }
+});
+
+addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+paintNodes(); buildEdges();
+window.__VIZ={camera,controls,byId,D,select,THREE,renderer,scene};
+(function loop(){ requestAnimationFrame(loop); controls.update(); renderer.render(scene,camera); })();
+</script>
+</body>
+</html>
